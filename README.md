@@ -16,7 +16,7 @@
 
 3. **训练模型并记录实验**
    ```bash
-   python src/train.py --experiment_name lgb_ridge_baseline --out_sub data/submissions/submission.csv
+   python -m src.train --experiment_name lgb_ridge_baseline --out_sub data/submissions/submission.csv
    ```
    - 训练脚本会自动在 `logs/experiments/<timestamp>_lgb_ridge_<hash>/` 下保存配置、指标、模型文件、OOF 预测以及 `submission.csv`。
 
