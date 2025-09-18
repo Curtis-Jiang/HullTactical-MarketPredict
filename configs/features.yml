@@ -16,6 +16,19 @@ rolling:
   windows: [5, 10, 20]
   stats: [mean, std, zscore]       # 纯历史窗口统计（无泄露）
 
+# 新增：滞后/差分特征（按日期对齐，避免泄露）
+lag:
+  enable: true
+  lags: [1, 5, 10]
+  diff: true
+  pct_change: false
+
+# 新增：离散前缀列滚动出现次数（强化 D* 信号）
+binary_rolling:
+  enable: true
+  prefixes: ["D"]
+  windows: [5, 10, 20]
+
 # 注意：teacher 特征（用 OOF 生成）属于折相关，不缓存，留到训练阶段做
 teacher_features:
   enable: false

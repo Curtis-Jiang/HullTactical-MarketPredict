@@ -17,7 +17,7 @@ import json
 import argparse
 import hashlib
 from pathlib import Path
-from typing import Dict, Any, Tuple, List
+from typing import Dict, Any, Tuple, List, Sequence
 
 import numpy as np
 import pandas as pd
@@ -37,6 +37,12 @@ DEFAULT_CFG: Dict[str, Any] = {
     },
     "winsorize": {"enable": True, "q": 0.01},
     "rolling": {"windows": [5, 10, 20], "stats": ["mean", "std", "zscore"]},
+    "lag": {"enable": True, "lags": [1, 5, 10], "diff": True, "pct_change": False},
+    "binary_rolling": {
+        "enable": True,
+        "prefixes": ["D"],
+        "windows": [5, 10, 20],
+    },
 }
 
 # -------------------------------
@@ -73,6 +79,159 @@ def downcast_float32(df: pd.DataFrame) -> pd.DataFrame:
     if len(float_cols):
         df[float_cols] = df[float_cols].astype("float32")
     return df
+
+
+def infer_binary_columns(columns: Sequence[str], prefixes: Sequence[str]) -> List[str]:
+    """Infer binary/discrete columns based on configured prefixes."""
+
+    if not prefixes:
+        return []
+    prefixes = tuple(prefixes)
+    return [c for c in columns if c.startswith(prefixes)]
+
+
+def lag_features_block(
+    train_block: pd.DataFrame,
+    test_block: pd.DataFrame,
+    train_dates: Sequence[int],
+    test_dates: Sequence[int],
+    safe_cols: Sequence[str],
+    cfg: Dict[str, Any],
+) -> Tuple[pd.DataFrame, pd.DataFrame, Dict[str, Any]]:
+    """Build lag/temporal difference features indexed by ``date_id``.
+
+    The function relies on the fact that ``train`` covers the full history of
+    ``date_id`` while ``test`` mirrors the trailing days. We therefore compute
+    lagged statistics on the train block and align them to both train/test by
+    date, avoiding any leakage from future days.
+    """
+
+    lags_raw = cfg.get("lags", []) if cfg.get("enable", True) else []
+    try:
+        lags = sorted({int(l) for l in lags_raw if int(l) > 0})
+    except Exception:
+        lags = []
+    if not lags:
+        return pd.DataFrame(index=train_block.index), pd.DataFrame(index=test_block.index), {
+            "enable": False,
+            "lags": [],
+            "diff": False,
+            "pct_change": False,
+            "n_features": 0,
+        }
+
+    idx_train = pd.Index(train_dates, name="date_id")
+    idx_test = pd.Index(test_dates, name="date_id")
+
+    base = pd.DataFrame(train_block[safe_cols].to_numpy(), columns=safe_cols, index=idx_train)
+    base = base.sort_index()
+
+    feats: List[pd.DataFrame] = []
+    for lag in lags:
+        shifted = base.shift(lag)
+        shifted.columns = [f"{c}_lag{lag}" for c in safe_cols]
+        feats.append(shifted)
+
+    if cfg.get("diff", False):
+        for lag in lags:
+            diff_df = base - base.shift(lag)
+            diff_df.columns = [f"{c}_chg{lag}" for c in safe_cols]
+            feats.append(diff_df)
+
+    if cfg.get("pct_change", False):
+        for lag in lags:
+            pct_df = base.pct_change(periods=lag, fill_method=None)
+            pct_df = pct_df.replace([np.inf, -np.inf], np.nan)
+            pct_df.columns = [f"{c}_pct{lag}" for c in safe_cols]
+            feats.append(pct_df)
+
+    combined = pd.concat(feats, axis=1) if feats else pd.DataFrame(index=base.index)
+    combined = combined.sort_index().astype("float32")
+    combined = combined.fillna(0.0)
+
+    tr_out = combined.reindex(idx_train).fillna(0.0).astype("float32")
+    te_out = combined.reindex(idx_test).fillna(0.0).astype("float32")
+
+    tr_out.index = train_block.index
+    te_out.index = test_block.index
+
+    meta = {
+        "enable": True,
+        "lags": lags,
+        "diff": bool(cfg.get("diff", False)),
+        "pct_change": bool(cfg.get("pct_change", False)),
+        "n_features": tr_out.shape[1],
+    }
+    return tr_out.copy(), te_out.copy(), meta
+
+
+def binary_rolling_features_block(
+    train_block: pd.DataFrame,
+    test_block: pd.DataFrame,
+    train_dates: Sequence[int],
+    test_dates: Sequence[int],
+    safe_cols: Sequence[str],
+    cfg: Dict[str, Any],
+) -> Tuple[pd.DataFrame, pd.DataFrame, Dict[str, Any]]:
+    """Rolling occurrence counts for binary/discrete features."""
+
+    if not cfg.get("enable", True):
+        return (
+            pd.DataFrame(index=train_block.index),
+            pd.DataFrame(index=test_block.index),
+            {"enable": False, "windows": [], "prefixes": [], "n_binary_cols": 0, "n_features": 0},
+        )
+
+    prefixes = cfg.get("prefixes", ["D"])
+    windows = cfg.get("windows", [5, 10, 20])
+    try:
+        windows = [int(w) for w in windows if int(w) > 0]
+    except Exception:
+        windows = []
+
+    binary_cols = infer_binary_columns(safe_cols, prefixes)
+    if not binary_cols or not windows:
+        return (
+            pd.DataFrame(index=train_block.index),
+            pd.DataFrame(index=test_block.index),
+            {
+                "enable": bool(cfg.get("enable", True)),
+                "windows": windows,
+                "prefixes": prefixes,
+                "n_binary_cols": len(binary_cols),
+                "n_features": 0,
+            },
+        )
+
+    idx_train = pd.Index(train_dates, name="date_id")
+    idx_test = pd.Index(test_dates, name="date_id")
+
+    base = pd.DataFrame(train_block[binary_cols].to_numpy(), columns=binary_cols, index=idx_train)
+    base = base.sort_index()
+
+    outs: List[pd.DataFrame] = []
+    for w in windows:
+        roll = base.rolling(window=w, min_periods=1).sum()
+        roll.columns = [f"{c}_rb{w}" for c in binary_cols]
+        outs.append(roll)
+
+    combined = pd.concat(outs, axis=1) if outs else pd.DataFrame(index=base.index)
+    combined = combined.fillna(0.0).astype("float32")
+
+    tr_out = combined.reindex(idx_train).fillna(0.0).astype("float32")
+    te_out = combined.reindex(idx_test).fillna(0.0).astype("float32")
+
+    tr_out.index = train_block.index
+    te_out.index = test_block.index
+
+    meta = {
+        "enable": True,
+        "prefixes": prefixes,
+        "windows": windows,
+        "n_binary_cols": len(binary_cols),
+        "n_features": tr_out.shape[1],
+    }
+    return tr_out.copy(), te_out.copy(), meta
 
 # -------------------------------
 # 核心逻辑
@@ -248,7 +407,37 @@ def build_level1(train: pd.DataFrame, test: pd.DataFrame, cfg: Dict[str, Any]) -
         src_train=X_block, src_test=T_block, safe_cols=safe_cols, windows=windows, stats=stats
     )
 
-    # 4) 汇总一次性 concat（避免碎片化）
+    # 4) 滞后/差分特征
+    lag_cfg = cfg.get("lag", {})
+    lag_meta = {"enable": False, "lags": [], "n_features": 0}
+    X_lag = pd.DataFrame(index=X_block.index)
+    T_lag = pd.DataFrame(index=T_block.index)
+    if "date_id" in train.columns and "date_id" in test.columns and lag_cfg.get("enable", True):
+        X_lag, T_lag, lag_meta = lag_features_block(
+            train_block=X_block,
+            test_block=T_block,
+            train_dates=train["date_id"].to_numpy(),
+            test_dates=test["date_id"].to_numpy(),
+            safe_cols=safe_cols,
+            cfg=lag_cfg,
+        )
+
+    # 5) 离散列滚动统计（出现次数）
+    bin_cfg = cfg.get("binary_rolling", {})
+    bin_meta = {"enable": False, "windows": [], "n_features": 0}
+    X_bin = pd.DataFrame(index=X_block.index)
+    T_bin = pd.DataFrame(index=T_block.index)
+    if "date_id" in train.columns and "date_id" in test.columns and bin_cfg.get("enable", True):
+        X_bin, T_bin, bin_meta = binary_rolling_features_block(
+            train_block=X_block,
+            test_block=T_block,
+            train_dates=train["date_id"].to_numpy(),
+            test_dates=test["date_id"].to_numpy(),
+            safe_cols=safe_cols,
+            cfg=bin_cfg,
+        )
+
+    # 6) 汇总一次性 concat（避免碎片化）
     parts_tr = [X_base, X_block]
     parts_te = [T_base, T_block]
     if X_flags is not None:
@@ -257,6 +446,12 @@ def build_level1(train: pd.DataFrame, test: pd.DataFrame, cfg: Dict[str, Any]) -
     if not X_roll.empty:
         parts_tr.append(X_roll)
         parts_te.append(T_roll)
+    if not X_lag.empty:
+        parts_tr.append(X_lag)
+        parts_te.append(T_lag)
+    if not X_bin.empty:
+        parts_tr.append(X_bin)
+        parts_te.append(T_bin)
 
     X_out = pd.concat(parts_tr, axis=1)
     T_out = pd.concat(parts_te, axis=1)
@@ -273,6 +468,8 @@ def build_level1(train: pd.DataFrame, test: pd.DataFrame, cfg: Dict[str, Any]) -
         "winsorize": wz,
         "rolling": {"windows": windows, "stats": stats},
         "thresholds": thr_dict,  # winsorize 的阈值，可用于复现
+        "lag": lag_meta,
+        "binary_rolling": bin_meta,
     }
     return X_out, T_out, meta
 
