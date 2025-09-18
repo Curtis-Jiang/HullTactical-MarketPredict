@@ -1,0 +1,6 @@
+__pycache__/
+*.py[cod]
+logs/experiments/
+data/interim/
+data/submissions/
+.ipynb_checkpoints/
