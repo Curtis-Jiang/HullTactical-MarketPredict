@@ -1,0 +1,5 @@
+cv:
+  type: "purged_timeseries"
+  n_splits: 5
+  embargo: 5
+  scored_only: true

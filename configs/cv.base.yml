@@ -1,0 +1,5 @@
+cv:
+  type: "purged_timeseries"
+  n_splits: 5
+  embargo: 5           # 验证窗左右保留缓冲，减少相邻依赖
+  scored_only: true    # OOF R² 只在 is_scored==1 上计算

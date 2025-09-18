@@ -1,0 +1,77 @@
+Shapes: (8990, 98) (10, 99)
+
+Train head:
+    date_id  D1  ...  risk_free_rate  market_forward_excess_returns
+0        0   0  ...        0.000301                      -0.003038
+1        1   0  ...        0.000303                      -0.009114
+2        2   0  ...        0.000301                      -0.010243
+
+[3 rows x 98 columns]
+
+Dtypes:
+ float64    88
+int64      10
+Name: count, dtype: int64
+
+Numeric cols: 98, Object cols: 0
+Target guess: forward_returns
+
+Top missing (train):
+ E7     0.775195
+V10    0.672859
+S3     0.637709
+M1     0.617019
+M13    0.616240
+M14    0.616240
+M6     0.560957
+V9     0.504894
+S12    0.393437
+M5     0.365184
+dtype: float64
+
+Constant cols: []
+Near-zero-variance cols: []
+
+Date_id gaps (train) – unique deltas: [1]
+
+Top drift:
+         col   delta_mean   ratio_std
+0   date_id -4490.000000  903.528990
+31       I2    -1.485096   14.155358
+23       E3    -1.332457   27.158849
+50       M3    -1.262489    1.107498
+62       P2     1.042252   40.369384
+52       M5    -0.972469    5.946255
+59      P11    -0.967115   26.610352
+92       V7     0.828243   14.046899
+94       V9     0.778631   20.399811
+21       E2    -0.724762   27.564982
+
+Only in train: ['forward_returns', 'market_forward_excess_returns', 'risk_free_rate']
+Only in test: ['is_scored', 'lagged_forward_returns', 'lagged_market_forward_excess_returns', 'lagged_risk_free_rate']
+
+Top +corr:
+ V13    0.063071
+M1     0.044979
+S5     0.040562
+D2     0.034180
+D1     0.034180
+M2     0.033464
+V7     0.032736
+V10    0.031712
+M17    0.024940
+D8     0.024739
+Name: forward_returns, dtype: float64
+
+Top -corr:
+ P5    -0.022959
+I2    -0.023011
+M12   -0.023914
+M8    -0.023991
+P8    -0.026229
+E12   -0.029557
+E11   -0.030796
+E7    -0.032192
+S2    -0.037465
+M4    -0.066591
+Name: forward_returns, dtype: float64

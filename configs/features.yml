@@ -1,0 +1,21 @@
+target: forward_returns
+drop_cols: [date_id, is_scored, forward_returns, row_id, id, index]
+
+safe_feature_policy:
+  mode: "intersection_numeric"   # 只保留 train∩test 的数值列
+
+impute:                          # 时间感知填补（只用历史）
+  forward_fill: true
+  rolling_mean_fallback: {enable: true, window: 20}
+  global_median_fallback: true
+  add_isna_flags: true
+
+winsorize: {enable: true, q: 0.01}  # 1%/99% 截尾
+
+rolling:
+  windows: [5, 10, 20]
+  stats: [mean, std, zscore]       # 纯历史窗口统计（无泄露）
+
+# 注意：teacher 特征（用 OOF 生成）属于折相关，不缓存，留到训练阶段做
+teacher_features:
+  enable: false

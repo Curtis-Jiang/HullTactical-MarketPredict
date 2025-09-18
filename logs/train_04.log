@@ -1,0 +1,94 @@
+[info] using processed dir: data/processed/htmp_v04bc6642
+y stats: {'count': 8990.0, 'mean': 0.00046920287422835827, 'std': 0.010550538077950478, 'min': -0.03975367918610573, '25%': -0.004323719418607652, '50%': 0.0006585521332453936, '75%': 0.005899990908801556, 'max': 0.04066144675016403}
+[fold1] drop near-constant in TRAIN: 199
+[fold2] drop near-constant in TRAIN: 119
+[fold3] drop near-constant in TRAIN: 87
+[fold4] drop near-constant in TRAIN: 25
+[fold5] drop near-constant in TRAIN: 9
+[filter] drop union near-constant: 199 → keep 835
+[info] prediction clip range: [-0.0522835, 0.0532219]
+[LightGBM] [Warning] min_data_in_leaf is set=20, min_child_samples=20 will be ignored. Current value: min_data_in_leaf=20
+[LightGBM] [Warning] min_gain_to_split is set=0.0, min_split_gain=0.0 will be ignored. Current value: min_gain_to_split=0.0
+[LightGBM] [Warning] min_data_in_leaf is set=20, min_child_samples=20 will be ignored. Current value: min_data_in_leaf=20
+[LightGBM] [Warning] min_gain_to_split is set=0.0, min_split_gain=0.0 will be ignored. Current value: min_gain_to_split=0.0
+[LightGBM] [Info] Auto-choosing col-wise multi-threading, the overhead of testing was 0.034350 seconds.
+You can set `force_col_wise=true` to remove the overhead.
+[LightGBM] [Info] Total Bins 88700
+[LightGBM] [Info] Number of data points in the train set: 1500, number of used features: 709
+[LightGBM] [Warning] min_data_in_leaf is set=20, min_child_samples=20 will be ignored. Current value: min_data_in_leaf=20
+[LightGBM] [Warning] min_gain_to_split is set=0.0, min_split_gain=0.0 will be ignored. Current value: min_gain_to_split=0.0
+[LightGBM] [Info] Start training from score 0.000501
+[LightGBM] [Warning] min_gain_to_split is set=0.0, min_split_gain=0.0 will be ignored. Current value: min_gain_to_split=0.0
+[LightGBM] [Warning] min_data_in_leaf is set=20, min_child_samples=20 will be ignored. Current value: min_data_in_leaf=20
+[LightGBM] [Warning] min_gain_to_split is set=0.0, min_split_gain=0.0 will be ignored. Current value: min_gain_to_split=0.0
+[LightGBM] [Warning] min_data_in_leaf is set=20, min_child_samples=20 will be ignored. Current value: min_data_in_leaf=20
+[fold1] y_va std=0.012078 | p1v(min/mean/max/std)=(0.00019696511594762944, 0.00046725827782404753, 0.0007875489145371586, 0.000144259273107296) | p2v=(-0.05228348821401596, -0.04241291806101799, 0.053221892565488815, 0.028656955808401108)
+[LightGBM] [Warning] min_data_in_leaf is set=20, min_child_samples=20 will be ignored. Current value: min_data_in_leaf=20
+[LightGBM] [Warning] min_gain_to_split is set=0.0, min_split_gain=0.0 will be ignored. Current value: min_gain_to_split=0.0
+[LightGBM] [Warning] min_data_in_leaf is set=20, min_child_samples=20 will be ignored. Current value: min_data_in_leaf=20
+[LightGBM] [Warning] min_gain_to_split is set=0.0, min_split_gain=0.0 will be ignored. Current value: min_gain_to_split=0.0
+[LightGBM] [Info] Auto-choosing col-wise multi-threading, the overhead of testing was 0.063919 seconds.
+You can set `force_col_wise=true` to remove the overhead.
+[LightGBM] [Info] Total Bins 139844
+[LightGBM] [Info] Number of data points in the train set: 2998, number of used features: 769
+[LightGBM] [Warning] min_data_in_leaf is set=20, min_child_samples=20 will be ignored. Current value: min_data_in_leaf=20
+[LightGBM] [Warning] min_gain_to_split is set=0.0, min_split_gain=0.0 will be ignored. Current value: min_gain_to_split=0.0
+[LightGBM] [Info] Start training from score 0.000528
+[LightGBM] [Warning] min_gain_to_split is set=0.0, min_split_gain=0.0 will be ignored. Current value: min_gain_to_split=0.0
+[LightGBM] [Warning] min_data_in_leaf is set=20, min_child_samples=20 will be ignored. Current value: min_data_in_leaf=20
+[LightGBM] [Warning] min_gain_to_split is set=0.0, min_split_gain=0.0 will be ignored. Current value: min_gain_to_split=0.0
+[LightGBM] [Warning] min_data_in_leaf is set=20, min_child_samples=20 will be ignored. Current value: min_data_in_leaf=20
+[fold2] y_va std=0.0098039 | p1v(min/mean/max/std)=(-0.0021702991163742493, 0.00019731408289132526, 0.004576823869662248, 0.0008786210414363271) | p2v=(-0.05228348821401596, -0.014567965641617775, 0.053221892565488815, 0.045939188450574875)
+[LightGBM] [Warning] min_data_in_leaf is set=20, min_child_samples=20 will be ignored. Current value: min_data_in_leaf=20
+[LightGBM] [Warning] min_gain_to_split is set=0.0, min_split_gain=0.0 will be ignored. Current value: min_gain_to_split=0.0
+[LightGBM] [Warning] min_data_in_leaf is set=20, min_child_samples=20 will be ignored. Current value: min_data_in_leaf=20
+[LightGBM] [Warning] min_gain_to_split is set=0.0, min_split_gain=0.0 will be ignored. Current value: min_gain_to_split=0.0
+[LightGBM] [Info] Auto-choosing col-wise multi-threading, the overhead of testing was 0.090951 seconds.
+You can set `force_col_wise=true` to remove the overhead.
+[LightGBM] [Info] Total Bins 155222
+[LightGBM] [Info] Number of data points in the train set: 4496, number of used features: 805
+[LightGBM] [Warning] min_data_in_leaf is set=20, min_child_samples=20 will be ignored. Current value: min_data_in_leaf=20
+[LightGBM] [Warning] min_gain_to_split is set=0.0, min_split_gain=0.0 will be ignored. Current value: min_gain_to_split=0.0
+[LightGBM] [Info] Start training from score 0.000445
+[LightGBM] [Warning] min_gain_to_split is set=0.0, min_split_gain=0.0 will be ignored. Current value: min_gain_to_split=0.0
+[LightGBM] [Warning] min_data_in_leaf is set=20, min_child_samples=20 will be ignored. Current value: min_data_in_leaf=20
+[LightGBM] [Warning] min_gain_to_split is set=0.0, min_split_gain=0.0 will be ignored. Current value: min_gain_to_split=0.0
+[LightGBM] [Warning] min_data_in_leaf is set=20, min_child_samples=20 will be ignored. Current value: min_data_in_leaf=20
+[fold3] y_va std=0.0132726 | p1v(min/mean/max/std)=(-0.00014781672828281865, 0.00048617550124008133, 0.0013070964690123307, 0.0001456129656858232) | p2v=(-0.05228348821401596, -0.00359686859883368, 0.053221892565488815, 0.04808321222662926)
+[LightGBM] [Warning] min_data_in_leaf is set=20, min_child_samples=20 will be ignored. Current value: min_data_in_leaf=20
+[LightGBM] [Warning] min_gain_to_split is set=0.0, min_split_gain=0.0 will be ignored. Current value: min_gain_to_split=0.0
+[LightGBM] [Warning] min_data_in_leaf is set=20, min_child_samples=20 will be ignored. Current value: min_data_in_leaf=20
+[LightGBM] [Warning] min_gain_to_split is set=0.0, min_split_gain=0.0 will be ignored. Current value: min_gain_to_split=0.0
+[LightGBM] [Info] Auto-choosing col-wise multi-threading, the overhead of testing was 0.100279 seconds.
+You can set `force_col_wise=true` to remove the overhead.
+[LightGBM] [Info] Total Bins 167736
+[LightGBM] [Info] Number of data points in the train set: 5994, number of used features: 829
+[LightGBM] [Warning] min_data_in_leaf is set=20, min_child_samples=20 will be ignored. Current value: min_data_in_leaf=20
+[LightGBM] [Warning] min_gain_to_split is set=0.0, min_split_gain=0.0 will be ignored. Current value: min_gain_to_split=0.0
+[LightGBM] [Info] Start training from score 0.000414
+[LightGBM] [Warning] min_gain_to_split is set=0.0, min_split_gain=0.0 will be ignored. Current value: min_gain_to_split=0.0
+[LightGBM] [Warning] min_data_in_leaf is set=20, min_child_samples=20 will be ignored. Current value: min_data_in_leaf=20
+[LightGBM] [Warning] min_gain_to_split is set=0.0, min_split_gain=0.0 will be ignored. Current value: min_gain_to_split=0.0
+[LightGBM] [Warning] min_data_in_leaf is set=20, min_child_samples=20 will be ignored. Current value: min_data_in_leaf=20
+[fold4] y_va std=0.00819523 | p1v(min/mean/max/std)=(-0.00016167345627220617, 0.0003497745919616008, 0.0014031646795357976, 0.00013831442917628195) | p2v=(-0.05228348821401596, -0.023894304409623146, 0.053221892565488815, 0.03781973570585251)
+[LightGBM] [Warning] min_data_in_leaf is set=20, min_child_samples=20 will be ignored. Current value: min_data_in_leaf=20
+[LightGBM] [Warning] min_gain_to_split is set=0.0, min_split_gain=0.0 will be ignored. Current value: min_gain_to_split=0.0
+[LightGBM] [Warning] min_data_in_leaf is set=20, min_child_samples=20 will be ignored. Current value: min_data_in_leaf=20
+[LightGBM] [Warning] min_gain_to_split is set=0.0, min_split_gain=0.0 will be ignored. Current value: min_gain_to_split=0.0
+[LightGBM] [Info] Auto-choosing col-wise multi-threading, the overhead of testing was 0.149155 seconds.
+You can set `force_col_wise=true` to remove the overhead.
+[LightGBM] [Info] Total Bins 172612
+[LightGBM] [Info] Number of data points in the train set: 7492, number of used features: 835
+[LightGBM] [Warning] min_data_in_leaf is set=20, min_child_samples=20 will be ignored. Current value: min_data_in_leaf=20
+[LightGBM] [Warning] min_gain_to_split is set=0.0, min_split_gain=0.0 will be ignored. Current value: min_gain_to_split=0.0
+[LightGBM] [Info] Start training from score 0.000427
+[LightGBM] [Warning] min_gain_to_split is set=0.0, min_split_gain=0.0 will be ignored. Current value: min_gain_to_split=0.0
+[LightGBM] [Warning] min_data_in_leaf is set=20, min_child_samples=20 will be ignored. Current value: min_data_in_leaf=20
+[LightGBM] [Warning] min_gain_to_split is set=0.0, min_split_gain=0.0 will be ignored. Current value: min_gain_to_split=0.0
+[LightGBM] [Warning] min_data_in_leaf is set=20, min_child_samples=20 will be ignored. Current value: min_data_in_leaf=20
+[fold5] y_va std=0.0113686 | p1v(min/mean/max/std)=(-0.0005426355253778096, 0.0003727212149372889, 0.001733870808175817, 0.00020560102520056857) | p2v=(-0.030749889090657234, 0.005802389234304428, 0.053221892565488815, 0.013005047105252743)
+Covered samples: 7490 / 8990
+OOF R2 (scored & covered): -1.403921154204038
+OOF RMSE (scored & covered): 0.017185066
+OOF MAE  (scored & covered): 0.01422663
+[ok] wrote submission.csv | rows=10

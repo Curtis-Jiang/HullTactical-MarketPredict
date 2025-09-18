@@ -1,0 +1,13 @@
+# 组合配置：引用/覆盖基础配置
+include:
+  - ../features.base.yml
+  - ../cv.base.yml
+  - ../model.lgb.yml
+
+# 覆盖举例：快速改窗口/截尾
+rolling:
+  windows: [5, 10, 20, 60]
+
+winsorize:
+  enable: true
+  q: 0.02

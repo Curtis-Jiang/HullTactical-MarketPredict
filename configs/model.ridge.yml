@@ -1,0 +1,6 @@
+model:
+  name: "ridge"
+  params:
+    alpha: 1.0
+    random_state: 42
+    
