@@ -1,542 +1,81 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""
-Build Level-1 features for HTMP.
-- 仅用“预测时可获得”的安全特征：train∩test 的数值列，排除 {date_id,is_scored,forward_returns,...}
-- 时间感知填补：ffill → rolling mean → 训练集列中位数（块级操作）
-- Winsorize 截尾（块级 clip）
-- 纯历史滚动统计：mean/std/zscore，分别在 train/test 内部独立 rolling（不跨边界）
-- 输出到 data/processed/htmp_v{hash}/{train_l1.parquet,test_l1.parquet,manifest.json}
+"""CLI for building level-1 feature datasets."""
 
-注意：
-- 全过程避免逐列 df[c] = ...，使用一次性 concat/clip，杜绝 DataFrame 碎片化告警。
-"""
+from __future__ import annotations
 
-import os
-import json
 import argparse
-import hashlib
+import json
+from copy import deepcopy
 from pathlib import Path
-from typing import Dict, Any, Tuple, List, Sequence
+from typing import Any, Dict
 
-import numpy as np
 import pandas as pd
 
-# -------------------------------
-# 默认配置（无 yml 也能跑）
-# -------------------------------
-DEFAULT_CFG: Dict[str, Any] = {
-    "target": "forward_returns",
-    "drop_cols": ["date_id", "is_scored", "forward_returns", "row_id", "id", "index"],
-    "safe_feature_policy": {"mode": "intersection_numeric"},
-    "impute": {
-        "add_isna_flags": True,
-        "forward_fill": True,
-        "rolling_mean_fallback": {"enable": True, "window": 20},
-        "global_median_fallback": True,
-    },
-    "winsorize": {"enable": True, "q": 0.01},
-    "rolling": {"windows": [5, 10, 20], "stats": ["mean", "std", "zscore"]},
-    "lag": {"enable": True, "lags": [1, 5, 10], "diff": True, "pct_change": False},
-    "binary_rolling": {
-        "enable": True,
-        "prefixes": ["D"],
-        "windows": [5, 10, 20],
-    },
-}
-
-# -------------------------------
-# 工具函数
-# -------------------------------
-def read_yaml_if_any(path: Path) -> Dict[str, Any]:
-    if path is None or not path.exists():
-        return {}
-    try:
-        import yaml
-        with open(path, "r", encoding="utf-8") as f:
-            return yaml.safe_load(f) or {}
-    except Exception:
-        # 没装 pyyaml 或解析失败，就用空覆盖
-        return {}
-
-def sha256_file(p: Path) -> str:
-    h = hashlib.sha256()
-    with open(p, "rb") as f:
-        for chunk in iter(lambda: f.read(1 << 20), b""):
-            h.update(chunk)
-    return h.hexdigest()
-
-def cfg_hash(payload: Dict[str, Any]) -> str:
-    raw = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()
-    return hashlib.sha256(raw).hexdigest()[:8]
-
-def ensure_dir(p: Path):
-    p.mkdir(parents=True, exist_ok=True)
-
-def downcast_float32(df: pd.DataFrame) -> pd.DataFrame:
-    # 只对浮点列降位
-    float_cols = df.select_dtypes(include=["float64", "float32"]).columns
-    if len(float_cols):
-        df[float_cols] = df[float_cols].astype("float32")
-    return df
-
-
-def infer_binary_columns(columns: Sequence[str], prefixes: Sequence[str]) -> List[str]:
-    """Infer binary/discrete columns based on configured prefixes."""
-
-    if not prefixes:
-        return []
-    prefixes = tuple(prefixes)
-    return [c for c in columns if c.startswith(prefixes)]
-
-
-def lag_features_block(
-    train_block: pd.DataFrame,
-    test_block: pd.DataFrame,
-    train_dates: Sequence[int],
-    test_dates: Sequence[int],
-    safe_cols: Sequence[str],
-    cfg: Dict[str, Any],
-) -> Tuple[pd.DataFrame, pd.DataFrame, Dict[str, Any]]:
-    """Build lag/temporal difference features indexed by ``date_id``.
-
-    The function relies on the fact that ``train`` covers the full history of
-    ``date_id`` while ``test`` mirrors the trailing days. We therefore compute
-    lagged statistics on the train block and align them to both train/test by
-    date, avoiding any leakage from future days.
-    """
-
-    lags_raw = cfg.get("lags", []) if cfg.get("enable", True) else []
-    try:
-        lags = sorted({int(l) for l in lags_raw if int(l) > 0})
-    except Exception:
-        lags = []
-    if not lags:
-        return pd.DataFrame(index=train_block.index), pd.DataFrame(index=test_block.index), {
-            "enable": False,
-            "lags": [],
-            "diff": False,
-            "pct_change": False,
-            "n_features": 0,
-        }
-
-    idx_train = pd.Index(train_dates, name="date_id")
-    idx_test = pd.Index(test_dates, name="date_id")
-
-    base = pd.DataFrame(train_block[safe_cols].to_numpy(), columns=safe_cols, index=idx_train)
-    base = base.sort_index()
-
-    feats: List[pd.DataFrame] = []
-    for lag in lags:
-        shifted = base.shift(lag)
-        shifted.columns = [f"{c}_lag{lag}" for c in safe_cols]
-        feats.append(shifted)
-
-    if cfg.get("diff", False):
-        for lag in lags:
-            diff_df = base - base.shift(lag)
-            diff_df.columns = [f"{c}_chg{lag}" for c in safe_cols]
-            feats.append(diff_df)
-
-    if cfg.get("pct_change", False):
-        for lag in lags:
-            pct_df = base.pct_change(periods=lag, fill_method=None)
-            pct_df = pct_df.replace([np.inf, -np.inf], np.nan)
-            pct_df.columns = [f"{c}_pct{lag}" for c in safe_cols]
-            feats.append(pct_df)
-
-    combined = pd.concat(feats, axis=1) if feats else pd.DataFrame(index=base.index)
-    combined = combined.sort_index().astype("float32")
-    combined = combined.fillna(0.0)
-
-    tr_out = combined.reindex(idx_train).fillna(0.0).astype("float32")
-    te_out = combined.reindex(idx_test).fillna(0.0).astype("float32")
-
-    tr_out.index = train_block.index
-    te_out.index = test_block.index
-
-    meta = {
-        "enable": True,
-        "lags": lags,
-        "diff": bool(cfg.get("diff", False)),
-        "pct_change": bool(cfg.get("pct_change", False)),
-        "n_features": tr_out.shape[1],
-    }
-    return tr_out.copy(), te_out.copy(), meta
-
-
-def binary_rolling_features_block(
-    train_block: pd.DataFrame,
-    test_block: pd.DataFrame,
-    train_dates: Sequence[int],
-    test_dates: Sequence[int],
-    safe_cols: Sequence[str],
-    cfg: Dict[str, Any],
-) -> Tuple[pd.DataFrame, pd.DataFrame, Dict[str, Any]]:
-    """Rolling occurrence counts for binary/discrete features."""
-
-    if not cfg.get("enable", True):
-        return (
-            pd.DataFrame(index=train_block.index),
-            pd.DataFrame(index=test_block.index),
-            {"enable": False, "windows": [], "prefixes": [], "n_binary_cols": 0, "n_features": 0},
-        )
-
-    prefixes = cfg.get("prefixes", ["D"])
-    windows = cfg.get("windows", [5, 10, 20])
-    try:
-        windows = [int(w) for w in windows if int(w) > 0]
-    except Exception:
-        windows = []
-
-    binary_cols = infer_binary_columns(safe_cols, prefixes)
-    if not binary_cols or not windows:
-        return (
-            pd.DataFrame(index=train_block.index),
-            pd.DataFrame(index=test_block.index),
-            {
-                "enable": bool(cfg.get("enable", True)),
-                "windows": windows,
-                "prefixes": prefixes,
-                "n_binary_cols": len(binary_cols),
-                "n_features": 0,
-            },
-        )
-
-    idx_train = pd.Index(train_dates, name="date_id")
-    idx_test = pd.Index(test_dates, name="date_id")
-
-    base = pd.DataFrame(train_block[binary_cols].to_numpy(), columns=binary_cols, index=idx_train)
-    base = base.sort_index()
-
-    outs: List[pd.DataFrame] = []
-    for w in windows:
-        roll = base.rolling(window=w, min_periods=1).sum()
-        roll.columns = [f"{c}_rb{w}" for c in binary_cols]
-        outs.append(roll)
-
-    combined = pd.concat(outs, axis=1) if outs else pd.DataFrame(index=base.index)
-    combined = combined.fillna(0.0).astype("float32")
-
-    tr_out = combined.reindex(idx_train).fillna(0.0).astype("float32")
-    te_out = combined.reindex(idx_test).fillna(0.0).astype("float32")
-
-    tr_out.index = train_block.index
-    te_out.index = test_block.index
-
-    meta = {
-        "enable": True,
-        "prefixes": prefixes,
-        "windows": windows,
-        "n_binary_cols": len(binary_cols),
-        "n_features": tr_out.shape[1],
-    }
-    return tr_out.copy(), te_out.copy(), meta
-
-# -------------------------------
-# 核心逻辑
-# -------------------------------
-def select_safe_columns(train: pd.DataFrame, test: pd.DataFrame, cfg: Dict[str, Any]) -> List[str]:
-    drop = set(cfg["drop_cols"])
-    num_train = [c for c in train.columns if pd.api.types.is_numeric_dtype(train[c])]
-    safe_cols = [c for c in num_train if c in test.columns and c not in drop]
-    return safe_cols
-
-def time_aware_impute_block(
-    X: pd.DataFrame, T: pd.DataFrame, safe_cols: List[str], train_for_stats: pd.DataFrame, cfg: Dict[str, Any]
-) -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame]:
-    """
-    返回：X_block、T_block、X_flags、T_flags（flags 可能为 None）
-    全部为块级操作：不做逐列赋值。
-    """
-    imp = cfg.get("impute", {})
-    add_flags = bool(imp.get("add_isna_flags", True))
-    use_ffill = bool(imp.get("forward_fill", True))
-    roll_cfg = imp.get("rolling_mean_fallback", {"enable": True, "window": 20})
-    use_roll = bool(roll_cfg.get("enable", True))
-    w = int(roll_cfg.get("window", 20))
-    use_global_median = bool(imp.get("global_median_fallback", True))
-
-    # 取块副本
-    X_block = X[safe_cols].copy()
-    T_block = T[safe_cols].copy()
-
-    # 缺失指示器（一次性）
-    X_flags = X_block.isna().astype("int8").add_suffix("_isna") if add_flags else None
-    T_flags = T_block.isna().astype("int8").add_suffix("_isna") if add_flags else None
-
-    # 前向填充（各自内部）
-    if use_ffill:
-        X_block = X_block.ffill()
-        T_block = T_block.ffill()
-
-    # 滚动均值回补（各自内部）
-    if use_roll:
-        X_mean = X_block.rolling(w, min_periods=1).mean()
-        T_mean = T_block.rolling(w, min_periods=1).mean()
-        X_block = X_block.fillna(X_mean)
-        T_block = T_block.fillna(T_mean)
-
-    # 兜底：用 train 的列中位数（避免看 test 的“未来”）
-    if use_global_median:
-        med = train_for_stats[safe_cols].median()
-        X_block = X_block.fillna(med)
-        T_block = T_block.fillna(med)
-
-    # 降位
-    X_block = downcast_float32(X_block)
-    T_block = downcast_float32(T_block)
-
-    # 一次性 copy，确保去碎片化
-    X_block = X_block.copy()
-    T_block = T_block.copy()
-    if X_flags is not None:
-        X_flags = X_flags.copy()
-        T_flags = T_flags.copy()
-
-    return X_block, T_block, X_flags, T_flags
-
-def winsorize_block(X: pd.DataFrame, T: pd.DataFrame, safe_cols: List[str], q: float = 0.01) -> Tuple[pd.DataFrame, pd.DataFrame, Dict[str, float]]:
-    """
-    对 X/T 的 safe_cols 执行按列分位数截尾（使用 X 的分位数），块级 clip。
-    返回：裁剪后的 X、T 以及阈值字典（用于 manifest）
-    """
-    # 用当前 X 的分位数计算阈值
-    lo = X[safe_cols].quantile(q)
-    hi = X[safe_cols].quantile(1 - q)
-    # Ensure thresholds are float32 to match downcasted dataframes
-    lo32 = lo.astype("float32")
-    hi32 = hi.astype("float32")
-
-    # pandas>=1.5 支持 axis=1 按列对齐 clip；老版本回退逐列（很快）
-    try:
-        X.loc[:, safe_cols] = (
-            X.loc[:, safe_cols]
-            .clip(lower=lo32, upper=hi32, axis=1)
-            .astype("float32")
-        )
-        T.loc[:, safe_cols] = (
-            T.loc[:, safe_cols]
-            .clip(lower=lo32, upper=hi32, axis=1)
-            .astype("float32")
-        )
-    except TypeError:
-        for c in safe_cols:
-            X[c] = X[c].clip(lo32[c], hi32[c]).astype("float32")
-            T[c] = T[c].clip(lo32[c], hi32[c]).astype("float32")
-
-    # 记录阈值到字典
-    thr = {f"{c}": [float(lo[c]), float(hi[c])] for c in safe_cols}
-    return X, T, thr
-
-def rolling_features_block(src_train: pd.DataFrame, src_test: pd.DataFrame, safe_cols: List[str], windows: List[int], stats: List[str]) -> Tuple[pd.DataFrame, pd.DataFrame]:
-    """
-    在 train/test 内部分别 rolling（不跨边界），生成 mean/std/zscore。
-    返回：X_roll、T_roll（可能为空 DataFrame，但不会报错）
-    """
-    outs_tr = []
-    outs_te = []
-    need_mean = "mean" in stats or "zscore" in stats
-    need_std  = "std" in stats or "zscore" in stats
-    for w in windows:
-        mean_tr = src_train[safe_cols].rolling(w, min_periods=w).mean() if need_mean else None
-        std_tr  = src_train[safe_cols].rolling(w, min_periods=w).std()  if need_std  else None
-        mean_te = src_test[safe_cols].rolling(w, min_periods=w).mean()  if need_mean else None
-        std_te  = src_test[safe_cols].rolling(w, min_periods=w).std()   if need_std  else None
-
-        # 拼接 mean/std
-        if "mean" in stats:
-            outs_tr.append(mean_tr.add_suffix(f"_rm{w}"))
-            outs_te.append(mean_te.add_suffix(f"_rm{w}"))
-        if "std" in stats:
-            outs_tr.append(std_tr.add_suffix(f"_rs{w}"))
-            outs_te.append(std_te.add_suffix(f"_rs{w}"))
-
-        # zscore
-        if "zscore" in stats:
-            z_tr = (src_train[safe_cols] - mean_tr) / std_tr.replace(0, np.nan)
-            z_te = (src_test[safe_cols]  - mean_te) / std_te.replace(0, np.nan)
-            outs_tr.append(z_tr.add_suffix(f"_rz{w}"))
-            outs_te.append(z_te.add_suffix(f"_rz{w}"))
-
-    X_roll = pd.concat(outs_tr, axis=1) if outs_tr else pd.DataFrame(index=src_train.index)
-    T_roll = pd.concat(outs_te, axis=1) if outs_te else pd.DataFrame(index=src_test.index)
-
-    # 缺失置 0（前 w-1 天没有足够窗口）
-    if not X_roll.empty:
-        X_roll = X_roll.fillna(0.0).astype("float32").copy()
-    if not T_roll.empty:
-        T_roll = T_roll.fillna(0.0).astype("float32").copy()
-
-    return X_roll, T_roll
-
-def build_level1(train: pd.DataFrame, test: pd.DataFrame, cfg: Dict[str, Any]) -> Tuple[pd.DataFrame, pd.DataFrame, Dict[str, Any]]:
-    # 0) 排序
-    if "date_id" in train.columns:
-        train = train.sort_values("date_id").reset_index(drop=True)
-    if "date_id" in test.columns:
-        test = test.sort_values("date_id").reset_index(drop=True)
-
-    target = cfg["target"]
-    safe_cols = select_safe_columns(train, test, cfg)
-
-    # 基础框架（只携带必要列，便于最后拼接）
-    X_base = train[["date_id"]].copy() if "date_id" in train.columns else pd.DataFrame(index=train.index)
-    T_base = test[["date_id"]].copy()  if "date_id" in test.columns  else pd.DataFrame(index=test.index)
-    if "is_scored" in train.columns:
-        X_base["is_scored"] = train["is_scored"].values
-    if target in train.columns:
-        X_base[target] = train[target].values
-
-    # 1) 时间感知填补（块级）+ 缺失指示器
-    X_block, T_block, X_flags, T_flags = time_aware_impute_block(
-        X=train, T=test, safe_cols=safe_cols, train_for_stats=train, cfg=cfg
-    )
-
-    # 2) Winsorize（块级）
-    wz = cfg.get("winsorize", {"enable": True, "q": 0.01})
-    thr_dict = {}
-    if wz.get("enable", True):
-        q = float(wz.get("q", 0.01))
-        X_block, T_block, thr_dict = winsorize_block(X_block, T_block, safe_cols, q=q)
-
-    # 3) 滚动统计（块级）
-    windows = cfg.get("rolling", {}).get("windows", [5, 10, 20])
-    stats   = cfg.get("rolling", {}).get("stats", ["mean", "std", "zscore"])
-    X_roll, T_roll = rolling_features_block(
-        src_train=X_block, src_test=T_block, safe_cols=safe_cols, windows=windows, stats=stats
-    )
-
-    # 4) 滞后/差分特征
-    lag_cfg = cfg.get("lag", {})
-    lag_meta = {"enable": False, "lags": [], "n_features": 0}
-    X_lag = pd.DataFrame(index=X_block.index)
-    T_lag = pd.DataFrame(index=T_block.index)
-    if "date_id" in train.columns and "date_id" in test.columns and lag_cfg.get("enable", True):
-        X_lag, T_lag, lag_meta = lag_features_block(
-            train_block=X_block,
-            test_block=T_block,
-            train_dates=train["date_id"].to_numpy(),
-            test_dates=test["date_id"].to_numpy(),
-            safe_cols=safe_cols,
-            cfg=lag_cfg,
-        )
-
-    # 5) 离散列滚动统计（出现次数）
-    bin_cfg = cfg.get("binary_rolling", {})
-    bin_meta = {"enable": False, "windows": [], "n_features": 0}
-    X_bin = pd.DataFrame(index=X_block.index)
-    T_bin = pd.DataFrame(index=T_block.index)
-    if "date_id" in train.columns and "date_id" in test.columns and bin_cfg.get("enable", True):
-        X_bin, T_bin, bin_meta = binary_rolling_features_block(
-            train_block=X_block,
-            test_block=T_block,
-            train_dates=train["date_id"].to_numpy(),
-            test_dates=test["date_id"].to_numpy(),
-            safe_cols=safe_cols,
-            cfg=bin_cfg,
-        )
-
-    # 6) 汇总一次性 concat（避免碎片化）
-    parts_tr = [X_base, X_block]
-    parts_te = [T_base, T_block]
-    if X_flags is not None:
-        parts_tr.append(X_flags)
-        parts_te.append(T_flags)
-    if not X_roll.empty:
-        parts_tr.append(X_roll)
-        parts_te.append(T_roll)
-    if not X_lag.empty:
-        parts_tr.append(X_lag)
-        parts_te.append(T_lag)
-    if not X_bin.empty:
-        parts_tr.append(X_bin)
-        parts_te.append(T_bin)
-
-    X_out = pd.concat(parts_tr, axis=1)
-    T_out = pd.concat(parts_te, axis=1)
-
-    # 最终再 copy 一次，确保去碎片化
-    X_out = X_out.copy()
-    T_out = T_out.copy()
-
-    # 元信息
-    meta = {
-        "safe_cols": safe_cols,
-        "n_features_total_train": X_out.shape[1],
-        "n_features_total_test": T_out.shape[1],
-        "winsorize": wz,
-        "rolling": {"windows": windows, "stats": stats},
-        "thresholds": thr_dict,  # winsorize 的阈值，可用于复现
-        "lag": lag_meta,
-        "binary_rolling": bin_meta,
-    }
-    return X_out, T_out, meta
-
-# -------------------------------
-# 主程序
-# -------------------------------
-def main():
-    parser = argparse.ArgumentParser(description="Build Level-1 features (block ops, no fragmentation).")
+from src.config import deep_merge
+from src.features.pipeline import (
+    DEFAULT_CFG,
+    build_level1,
+    build_version_manifest,
+    ensure_dir,
+    read_yaml_if_any,
+)
+
+
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description="Build level-1 features for HTMP")
     parser.add_argument("--train", type=str, default="data/raw/train.csv")
-    parser.add_argument("--test",  type=str, default="data/raw/test.csv")
+    parser.add_argument("--test", type=str, default="data/raw/test.csv")
     parser.add_argument("--outdir", type=str, default="data/processed")
-    parser.add_argument("--config", type=str, default=None, help="Optional: configs/features.yml")
-    args = parser.parse_args()
+    parser.add_argument("--config", type=str, default=None)
+    return parser.parse_args()
 
-    RAW_TRAIN = Path(args.train)
-    RAW_TEST  = Path(args.test)
-    OUT_ROOT  = Path(args.outdir)
 
-    # 读配置（默认 + yml 覆盖）
-    cfg = DEFAULT_CFG.copy()
-    yml_cfg = read_yaml_if_any(Path(args.config)) if args.config else {}
-    # 浅合并（简单够用）
-    for k, v in yml_cfg.items():
-        if isinstance(v, dict) and isinstance(cfg.get(k), dict):
-            cfg[k].update(v)
-        else:
-            cfg[k] = v
+def load_feature_config(path: Path | None) -> Dict[str, Any]:
+    cfg = deepcopy(DEFAULT_CFG)
+    if path is not None:
+        override = read_yaml_if_any(path)
+        cfg = deep_merge(cfg, override)
+    return cfg
 
-    # 读数据
-    train = pd.read_csv(RAW_TRAIN)
-    test  = pd.read_csv(RAW_TEST)
 
-    # 版本号：原始文件指纹 + Level-1 cfg
-    ver = cfg_hash({
-        "files": {"train": sha256_file(RAW_TRAIN), "test": sha256_file(RAW_TEST)},
-        "level1_cfg": cfg,
-    })
-    out_dir = OUT_ROOT / f"htmp_v{ver}"
+def main() -> None:
+    args = parse_args()
+
+    train_path = Path(args.train).expanduser().resolve()
+    test_path = Path(args.test).expanduser().resolve()
+    out_root = Path(args.outdir).expanduser().resolve()
+    cfg_path = Path(args.config).expanduser().resolve() if args.config else None
+
+    cfg = load_feature_config(cfg_path)
+
+    train_df = pd.read_csv(train_path)
+    test_df = pd.read_csv(test_path)
+
+    X, T, meta = build_level1(train_df, test_df, cfg)
+    version, manifest = build_version_manifest(train_path, test_path, cfg, meta)
+
+    out_dir = out_root / f"htmp_v{version}"
     ensure_dir(out_dir)
 
-    tr_pq = out_dir / "train_l1.parquet"
-    te_pq = out_dir / "test_l1.parquet"
-    manifest = out_dir / "manifest.json"
+    train_pq = out_dir / "train_l1.parquet"
+    test_pq = out_dir / "test_l1.parquet"
+    manifest_path = out_dir / "manifest.json"
 
-    if tr_pq.exists() and te_pq.exists() and manifest.exists():
-        print(f"[cache] already built at {out_dir}")
-        return
-
-    # 构建
-    X, T, meta = build_level1(train, test, cfg)
-
-    # 写 parquet（优先 pyarrow）
-    engine = "pyarrow"
-    try:
-        X.to_parquet(tr_pq, index=False, engine=engine)
-        T.to_parquet(te_pq, index=False, engine=engine)
-    except Exception:
-        # 回退
-        X.to_parquet(tr_pq, index=False)
-        T.to_parquet(te_pq, index=False)
-
-    # manifest
-    manifest.write_text(json.dumps({"cfg": cfg, "version": ver, "meta": meta}, indent=2), encoding="utf-8")
+    X.to_parquet(train_pq, index=False)
+    T.to_parquet(test_pq, index=False)
+    manifest_path.write_text(json.dumps(manifest, indent=2), encoding="utf-8")
 
     print(f"[ok] saved Level-1 features to: {out_dir}")
     print(f"  train_l1.parquet: {X.shape}  test_l1.parquet: {T.shape}")
-    print(f"  safe_cols: {len(meta['safe_cols'])}  windows: {meta['rolling']['windows']}  stats: {meta['rolling']['stats']}")
+    print(
+        "  safe_cols: {safe}  windows: {windows}  stats: {stats}".format(
+            safe=len(meta.get("safe_cols", [])),
+            windows=meta.get("rolling", {}).get("windows", []),
+            stats=meta.get("rolling", {}).get("stats", []),
+        )
+    )
+
 
 if __name__ == "__main__":
     main()

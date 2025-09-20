@@ -2,4 +2,7 @@ cv:
   type: "purged_timeseries"
   n_splits: 5
   embargo: 5
+  initial_train_size: 4000
+  test_size: 1500
+  min_test_size_ratio: 0.6
   scored_only: true

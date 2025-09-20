@@ -1,11 +1,10 @@
-# HullTactical-MarketPredict
-
 基于 Kaggle Hull Tactical Market Prediction 数据集的时间序列建模项目，涵盖特征构建、模型训练与推理全流程。
 
 ## 快速开始
 
 1. **准备环境**
    ```bash
+   conda activate kaggle
    pip install -r requirements.txt
    ```
 
@@ -34,4 +33,4 @@
 - `src/predict.py`：加载指定实验资产，生成比赛提交文件。
 - `docs/执行手册.md`：详述执行流程、目录规划与后续迭代建议。
 
-更多背景信息与实施细节请参阅 `docs/执行手册.md`。
+
